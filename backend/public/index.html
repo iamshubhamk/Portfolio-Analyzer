@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Portfolio Assistant</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #0b1220; color: #e6edf3; }
+      header { padding: 16px 24px; border-bottom: 1px solid #1f2a44; display: flex; align-items: center; justify-content: space-between; }
+      .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+      .card { background: #0f172a; border: 1px solid #1f2a44; border-radius: 12px; padding: 16px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .btn { background: #2563eb; color: white; border: none; padding: 10px 14px; border-radius: 8px; cursor: pointer; }
+      .btn:disabled { background: #334155; cursor: not-allowed; }
+      input[type="text"], input[type="file"], textarea { width: 100%; background: #0b1220; border: 1px solid #1f2a44; color: #e6edf3; padding: 10px; border-radius: 8px; }
+      .muted { color: #9aa4b2; font-size: 12px; }
+      .chat { height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px; border: 1px solid #1f2a44; border-radius: 12px; background: #0b1220; }
+      .bubble { padding: 12px 14px; border-radius: 12px; max-width: 75%; white-space: pre-wrap; }
+      .user { background: #1e293b; align-self: flex-end; }
+      .assistant { background: #111827; border: 1px solid #1f2a44; align-self: flex-start; }
+      .toolbar { display: flex; gap: 8px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Investor Portfolio Assistant</strong>
+      <span id="status" class="muted">Ready</span>
+    </header>
+
+    <div class="container">
+      <div class="row">
+        <div class="card">
+          <h3>1) Create Session</h3>
+          <p class="muted">A session keeps your chat history until you reload the page.</p>
+          <div class="toolbar">
+            <button id="createSessionBtn" class="btn">Create Session</button>
+            <input id="sessionId" type="text" placeholder="Session ID" readonly>
+          </div>
+        </div>
+        <div class="card">
+          <h3>2) Upload Portfolio (PDF/CSV/XLSX)</h3>
+          <form id="uploadForm">
+            <input id="fileInput" name="file" type="file" accept=".pdf,.csv,.xlsx,.xls" required>
+            <div style="height:8px"></div>
+            <button class="btn" type="submit">Upload to Session</button>
+          </form>
+          <p class="muted">Your portfolio is parsed server-side and used for analysis.</p>
+        </div>
+      </div>
+
+      <div style="height:16px"></div>
+
+      <div class="card">
+        <h3>3) Chat</h3>
+        <div id="chat" class="chat"></div>
+        <div style="height:8px"></div>
+        <form id="chatForm" class="toolbar">
+          <input id="question" type="text" placeholder="Ask about your portfolio..." required>
+          <button class="btn" type="submit">Ask</button>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const sessionIdEl = document.getElementById('sessionId');
+      const chatEl = document.getElementById('chat');
+      const createSessionBtn = document.getElementById('createSessionBtn');
+      const uploadForm = document.getElementById('uploadForm');
+      const fileInput = document.getElementById('fileInput');
+      const chatForm = document.getElementById('chatForm');
+      const questionInput = document.getElementById('question');
+
+      function setStatus(text) { statusEl.textContent = text; }
+      function appendBubble(role, text) {
+        const div = document.createElement('div');
+        div.className = 'bubble ' + (role === 'user' ? 'user' : 'assistant');
+        div.textContent = text;
+        chatEl.appendChild(div);
+        chatEl.scrollTop = chatEl.scrollHeight;
+      }
+
+      async function createSession() {
+        setStatus('Creating session...');
+        const res = await fetch('/chat/session', { method: 'POST' });
+        const data = await res.json();
+        sessionIdEl.value = data.session_id;
+        setStatus('Session ready');
+      }
+
+      async function uploadPortfolio(ev) {
+        ev.preventDefault();
+        if (!sessionIdEl.value) { alert('Create a session first'); return; }
+        if (!fileInput.files[0]) { alert('Choose a file'); return; }
+        setStatus('Uploading portfolio...');
+        const form = new FormData();
+        form.append('session_id', sessionIdEl.value);
+        form.append('file', fileInput.files[0]);
+        const res = await fetch('/chat/upload', { method: 'POST', body: form });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert('Upload failed: ' + (err.detail || res.status));
+          setStatus('Upload failed');
+          return;
+        }
+        setStatus('Portfolio uploaded');
+      }
+
+      async function sendQuestion(ev) {
+        ev.preventDefault();
+        if (!sessionIdEl.value) { alert('Create a session first'); return; }
+        const q = questionInput.value.trim();
+        if (!q) return;
+        appendBubble('user', q);
+        questionInput.value = '';
+        setStatus('Thinking...');
+        try {
+          const form = new FormData();
+          form.append('session_id', sessionIdEl.value);
+          form.append('question', q);
+          const res = await fetch('/chat/ask', { method: 'POST', body: form });
+          const data = await res.json();
+          if (!res.ok) {
+            const msg = data && data.detail ? data.detail : 'Request failed';
+            appendBubble('assistant', 'Error: ' + msg);
+          } else {
+            appendBubble('assistant', data.answer || '(no answer)');
+          }
+        } catch (e) {
+          appendBubble('assistant', 'Network error');
+        } finally {
+          setStatus('Ready');
+        }
+      }
+
+      createSessionBtn.addEventListener('click', createSession);
+      uploadForm.addEventListener('submit', uploadPortfolio);
+      chatForm.addEventListener('submit', sendQuestion);
+
+      // Auto-create a session on first load for convenience
+      createSession();
+    </script>
+  </body>
+</html>
