@@ -7,6 +7,10 @@ def parse_portfolio(filename: str, file_content: bytes):
         df = pd.read_csv(BytesIO(file_content))
         return df.to_dict(orient='records')
 
+    elif filename.endswith('.xlsx') or filename.endswith('.xls'):
+        df = pd.read_excel(BytesIO(file_content))
+        return df.to_dict(orient='records')
+
     elif filename.endswith('.pdf'):
         with pdfplumber.open(BytesIO(file_content)) as pdf:
             all_data = []
@@ -21,4 +25,4 @@ def parse_portfolio(filename: str, file_content: bytes):
             return all_data
 
     else:
-        raise ValueError("Unsupported file type. Only CSV and PDF supported for now.")
+        raise ValueError("Unsupported file type. Only CSV, XLSX, and PDF supported.")
