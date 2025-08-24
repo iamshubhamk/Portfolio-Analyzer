@@ -20,10 +20,10 @@ app = FastAPI()
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
-def fetch_rss_news(rss_url):
+def fetch_rss_news(rss_url, max_articles=30):
     feed = feedparser.parse(rss_url)
     news = []
-    for entry in feed.entries[:len(feed.entries)]:
+    for entry in feed.entries[:max_articles]:
         news.append({
             "title": entry.title,
             "link": entry.link,
@@ -34,9 +34,9 @@ def fetch_rss_news(rss_url):
 # Set BASE_DIR at the top for consistent path handling
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Instead of reading from a static file, fetch and save news articles at startup
+# Instead of reading from a static file, fetch and save only the latest 30 news articles at startup
 rss_url = "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
-news_articles = fetch_rss_news(rss_url)
+news_articles = fetch_rss_news(rss_url, max_articles=30)
 news_json_path = os.path.join(BASE_DIR, "data", "news_articles.json")
 os.makedirs(os.path.dirname(news_json_path), exist_ok=True)
 with open(news_json_path, "w", encoding="utf-8") as f:
