@@ -29,19 +29,24 @@ def fetch_rss_news(rss_url):
             "link": entry.link,
             "summary": entry.summary if "summary" in entry else ""
         })
-    return news# Initialize News RAG Engine
+    return news
 
+# Set BASE_DIR at the top for consistent path handling
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Instead of reading from a static file, fetch and save news articles at startup
 rss_url = "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
 news_articles = fetch_rss_news(rss_url)
-with open("data/news_articles.json", "w", encoding="utf-8") as f:
+news_json_path = os.path.join(BASE_DIR, "data", "news_articles.json")
+os.makedirs(os.path.dirname(news_json_path), exist_ok=True)
+with open(news_json_path, "w", encoding="utf-8") as f:
     json.dump(news_articles, f, ensure_ascii=False, indent=2)
-news_engine = NewsRAGEngine('data/news_articles.json')
+news_engine = NewsRAGEngine(news_json_path)
 
 # Simple in-memory session store
 sessions: Dict[str, Dict[str, Any]] = {}
 
 # Mount static directory at /ui instead of root
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 if not os.path.exists(PUBLIC_DIR):
     os.makedirs(PUBLIC_DIR, exist_ok=True)
@@ -84,6 +89,7 @@ def create_session():
     return {"session_id": session_id}
 
 
+# Fix ValueError exception parenthesis
 @app.post("/chat/upload")
 async def upload_portfolio(session_id: str = Form(...), file: UploadFile = File(...)):
     if session_id not in sessions:
