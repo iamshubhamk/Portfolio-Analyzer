@@ -1,4 +1,8 @@
 # backend/main.py
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 from fastapi import FastAPI, UploadFile, File, Form
 from utils.file_parser import parse_portfolio
 from utils.analyzer import analyze_portfolio
@@ -11,7 +15,6 @@ import uuid
 from typing import Dict, List, Any
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
-import os
 
 app = FastAPI()
 
