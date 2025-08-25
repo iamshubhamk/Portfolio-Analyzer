@@ -21,22 +21,32 @@ app = FastAPI()
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 def fetch_rss_news(rss_url):
-    feed = feedparser.parse(rss_url)
-    news = []
-    for entry in feed.entries[:len(feed.entries)]:
-        news.append({
-            "title": entry.title,
-            "link": entry.link,
-            "summary": entry.summary if "summary" in entry else ""
-        })
-    return news
+    try:
+        feed = feedparser.parse(rss_url)
+        news = []
+        for entry in feed.entries[:len(feed.entries)]:
+            news.append({
+                "title": entry.title,
+                "link": entry.link,
+                "summary": entry.summary if "summary" in entry else ""
+            })
+        return news
+    except Exception as e:
+        print(f"Error fetching news articles: {e}")
+        return []
 
 # Set BASE_DIR at the top for consistent path handling
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Instead of reading from a static file, fetch and save news articles at startup
 rss_url = "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+print("--------------------------------")
+print("Fetching news articles...")
+print("--------------------------------")
+
 news_articles = fetch_rss_news(rss_url)
+print("News articles fetched successfully")
+print("--------------------------------")
 news_json_path = os.path.join(BASE_DIR, "data", "news_articles.json")
 os.makedirs(os.path.dirname(news_json_path), exist_ok=True)
 with open(news_json_path, "w", encoding="utf-8") as f:
@@ -47,24 +57,30 @@ news_engine = NewsRAGEngine(news_json_path)
 sessions: Dict[str, Dict[str, Any]] = {}
 
 # Mount static directory at /ui instead of root
-PUBLIC_DIR = os.path.join(BASE_DIR, "public")
-if not os.path.exists(PUBLIC_DIR):
-    os.makedirs(PUBLIC_DIR, exist_ok=True)
-app.mount("/ui", StaticFiles(directory=PUBLIC_DIR, html=True), name="static")
+# PUBLIC_DIR = os.path.join(BASE_DIR, "public")
+# if not os.path.exists(PUBLIC_DIR):
+#     os.makedirs(PUBLIC_DIR, exist_ok=True)
+# app.mount("/ui", StaticFiles(directory=PUBLIC_DIR, html=True), name="static")
 
 
 def news_impact_query(query: str):
-    relevant_news = news_engine.search_relevant_news(query)
-    return {"relevant_news": relevant_news}
+    try:
+        relevant_news = news_engine.search_relevant_news(query)
+        return {"relevant_news": relevant_news}
+    except Exception as e:
+        print(f"Error occured in method news_impact_query: {e}")
 
 
 def ask_ollama(prompt):
-    resp = requests.post(OLLAMA_URL, json={
-        "model": "phi3:mini",
-        "prompt": prompt,
-        "stream": False
-    })
-    return resp.json().get("response", "")
+    try:
+        resp = requests.post(OLLAMA_URL, json={
+            "model": "phi3:mini",
+            "prompt": prompt,
+            "stream": False
+        })
+        return resp.json().get("response", "")
+    except Exception as e:
+        print(f"Error occured in method ask_ollama {e}")
 
 
 @app.get("/")
@@ -81,12 +97,15 @@ def health_check():
 # Session management
 @app.post("/chat/session")
 def create_session():
-    session_id = str(uuid.uuid4())
-    sessions[session_id] = {
-        "history": [],           # list of {role, content}
-        "portfolio": None        # parsed portfolio data
-    }
-    return {"session_id": session_id}
+    try:
+        session_id = str(uuid.uuid4())
+        sessions[session_id] = {
+            "history": [],           # list of {role, content}
+            "portfolio": None        # parsed portfolio data
+        }
+        return {"session_id": session_id}
+    except Exception as e:
+        print(f"Error occured in creating session: {e}")
 
 
 # Fix ValueError exception parenthesis
@@ -105,46 +124,53 @@ async def upload_portfolio(session_id: str = Form(...), file: UploadFile = File(
 
 @app.post("/chat/ask")
 async def chat_ask(session_id: str = Form(...), question: str = Form(...)):
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Invalid session_id")
-    if not question:
-        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+    try:
+        if session_id not in sessions:
+            raise HTTPException(status_code=404, detail="Invalid session_id")
+        if not question:
+            raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    session = sessions[session_id]
-    portfolio_data = session.get("portfolio")
-    if not portfolio_data:
-        raise HTTPException(status_code=400, detail="Upload a portfolio first for this session.")
+        session = sessions[session_id]
+        portfolio_data = session.get("portfolio")
+        if not portfolio_data:
+            raise HTTPException(status_code=400, detail="Upload a portfolio first for this session.")
 
-    # Analyze portfolio fresh each time for simplicity
-    analysis = analyze_portfolio(portfolio_data)
+        # Analyze portfolio fresh each time for simplicity
+        analysis = analyze_portfolio(portfolio_data)
 
-    # Get RAG context from news
-    context = news_impact_query(question)
-    if not context:
-        raise HTTPException(status_code=404, detail="No relevant context found.")
+        # Get RAG context from news
+        context = news_impact_query(question)
+        if not context:
+            raise HTTPException(status_code=404, detail="No relevant context found.")
 
-    # Build prompt with history for context
-    chat_history_text = "\n".join([f"{turn['role'].capitalize()}: {turn['content']}" for turn in session["history"]])
-    prompt = f"""You are an expert financial analyst. Use the conversation so far, the portfolio analysis, and the news context to answer the user's question.
-Conversation so far:
-{chat_history_text}
+        # Build prompt with history for context
+        chat_history_text = "\n".join([f"{turn['role'].capitalize()}: {turn['content']}" for turn in session["history"]])
+        prompt = f"""You are an expert financial analyst. Use the conversation so far, the portfolio analysis, and the news context to answer the user's question.
+    Conversation so far:
+    {chat_history_text}
 
-Portfolio analysis:
-{analysis}
+    Portfolio analysis:
+    {analysis}
 
-News context (list of dicts with title/link/summary):
-{context}
+    News context (list of dicts with title/link/summary):
+    {context}
 
-User question: {question}
-Provide a clear, helpful, portfolio-aware answer. If context is insufficient, say what more you need."""
+    User question: {question}
+    Provide a clear, helpful, portfolio-aware answer. If context is insufficient, say what more you need."""
+        
+        print("-----------------")
+        print("Waiting for Ollama reply")
 
-    answer = ask_ollama(prompt)
+        answer = ask_ollama(prompt)
 
-    # Save to history
-    session["history"].append({"role": "user", "content": question})
-    session["history"].append({"role": "assistant", "content": answer})
+        # Save to history
+        session["history"].append({"role": "user", "content": question})
+        session["history"].append({"role": "assistant", "content": answer})
 
-    return {"answer": answer, "history": session["history"]}
+        print("-----------response generated---------")
+        return {"answer": answer, "history": session["history"]}
+    except Exception as e:
+        print(f"Error occured in method chat_ask : {e}")
 
 
 @app.get("/chat/history/{session_id}")
