@@ -18,7 +18,10 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 app = FastAPI()
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
+# Ollama settings; default disabled for hosted environments
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+#USE_OLLAMA = os.getenv("USE_OLLAMA", "false").lower() == "true"
+# OLLAMA_TIMEOUT_SEC = float(os.getenv("OLLAMA_TIMEOUT_SEC", "5"))
 
 def fetch_rss_news(rss_url):
     try:
@@ -93,15 +96,25 @@ def news_impact_query(query: str):
 
 
 def ask_ollama(prompt):
+    # Allow disabling Ollama for hosted environments (e.g., Render)
+    # if not USE_OLLAMA:
+    #     return "(LLM disabled)"
     try:
-        resp = requests.post(OLLAMA_URL, json={
-            "model": "phi3:mini",
-            "prompt": prompt,
-            "stream": False
-        })
-        return resp.json().get("response", "")
+        resp = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": os.getenv("OLLAMA_MODEL", "phi3:mini"),
+                "prompt": prompt,
+                "stream": False
+            },
+        )
+        if resp.ok:
+            return resp.json().get("response", "")
+        print(f"ask_ollama HTTP {resp.status_code}: {resp.text[:200]}")
+        return ""
     except Exception as e:
         print(f"Error occured in method ask_ollama {e}")
+        return ""
 
 
 @app.get("/")
@@ -183,6 +196,11 @@ async def chat_ask(session_id: str = Form(...), question: str = Form(...)):
         print("Waiting for Ollama reply")
 
         answer = ask_ollama(prompt)
+        if not answer:
+            answer = (
+                "I'm unable to generate an LLM response right now. "
+                "Please ensure the LLM service is available or try again later."
+            )
 
         # Save to history
         session["history"].append({"role": "user", "content": question})
