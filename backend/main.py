@@ -38,20 +38,40 @@ def fetch_rss_news(rss_url):
 # Set BASE_DIR at the top for consistent path handling
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Instead of reading from a static file, fetch and save news articles at startup
+# Path to news cache file
 rss_url = "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
-print("--------------------------------")
-print("Fetching news articles...")
-print("--------------------------------")
-
-news_articles = fetch_rss_news(rss_url)
-print("News articles fetched successfully")
-print("--------------------------------")
 news_json_path = os.path.join(BASE_DIR, "data", "news_articles.json")
 os.makedirs(os.path.dirname(news_json_path), exist_ok=True)
-with open(news_json_path, "w", encoding="utf-8") as f:
-    json.dump(news_articles, f, ensure_ascii=False, indent=2)
-news_engine = NewsRAGEngine(news_json_path)
+
+# Ensure the file exists with an empty list initially to avoid blocking startup
+if not os.path.exists(news_json_path):
+    with open(news_json_path, "w", encoding="utf-8") as f:
+        json.dump([], f)
+
+# Fetch RSS in background after app starts, so startup is non-blocking
+from threading import Thread
+
+def _refresh_news_background():
+    try:
+        print("[startup] Fetching news articles in background...")
+        news_articles = fetch_rss_news(rss_url)
+        with open(news_json_path, "w", encoding="utf-8") as f:
+            json.dump(news_articles, f, ensure_ascii=False, indent=2)
+        print(f"[startup] Wrote {len(news_articles)} news articles to {news_json_path}")
+    except Exception as exc:
+        print(f"[startup] Failed to refresh news: {exc}")
+
+@app.on_event("startup")
+def schedule_news_refresh():
+    Thread(target=_refresh_news_background, daemon=True).start()
+# Lazily initialize heavy NewsRAGEngine to avoid blocking app startup
+news_engine = None
+
+def get_news_engine():
+    global news_engine
+    if news_engine is None:
+        news_engine = NewsRAGEngine(news_json_path)
+    return news_engine
 
 # Simple in-memory session store
 sessions: Dict[str, Dict[str, Any]] = {}
@@ -65,7 +85,8 @@ sessions: Dict[str, Dict[str, Any]] = {}
 
 def news_impact_query(query: str):
     try:
-        relevant_news = news_engine.search_relevant_news(query)
+        engine = get_news_engine()
+        relevant_news = engine.search_relevant_news(query)
         return {"relevant_news": relevant_news}
     except Exception as e:
         print(f"Error occured in method news_impact_query: {e}")
@@ -197,7 +218,8 @@ async def search_news(query: str, top_k: int = 5, threshold: float = 2.0):
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
     
     try:
-        results = news_engine.search_relevant_news(query, top_k=top_k, threshold=threshold)
+        engine = get_news_engine()
+        results = engine.search_relevant_news(query, top_k=top_k, threshold=threshold)
         return {
             "query": query,
             "results_count": len(results),
@@ -220,7 +242,8 @@ async def search_news_by_company(company_name: str, top_k: int = 5):
         dict: Dictionary containing the relevant news articles
     """
     try:
-        results = news_engine.search_by_company(company_name, top_k=top_k)
+        engine = get_news_engine()
+        results = engine.search_by_company(company_name, top_k=top_k)
         return {
             "company": company_name,
             "results_count": len(results),
@@ -243,7 +266,8 @@ async def search_news_by_topic(topic: str, top_k: int = 5):
         dict: Dictionary containing the relevant news articles
     """
     try:
-        results = news_engine.search_by_topic(topic, top_k=top_k)
+        engine = get_news_engine()
+        results = engine.search_by_topic(topic, top_k=top_k)
         return {
             "topic": topic,
             "results_count": len(results),
