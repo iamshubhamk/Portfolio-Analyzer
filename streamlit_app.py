@@ -34,7 +34,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Backend URL (adjust if running on a different port or host)
-BACKEND_URL = "http://16.170.241.112:8000"
+BACKEND_URL = "https://portfolio-analyzer-backend-4f9z.onrender.com"
 
 # Session state for session_id
 if 'session_id' not in st.session_state:
